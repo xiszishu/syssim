@@ -16,34 +16,18 @@
 #define ITEM_COUNT 1000000
 #define SIZE 20000
 
-extern "C" {
-    extern void mcsim_log_begin();
-    extern void mcsim_log_end();
-    extern void mcsim_tx_begin();
-    extern void mcsim_tx_end();
-    extern void mcsim_paccess_begin();
-    extern void mcsim_paccess_end();
-    extern void mcsim_mem_fence();
-    extern void mcsim_skip_instrs_begin();
-    extern void mcsim_skip_instrs_end();
-}
-
 using namespace std;
-
-//volatile bool a;
+volatile bool a;
 volatile short thread_num;
 volatile short pac[4000];
 volatile short c_2_p[200];
 volatile short p_2_c[4000];
 volatile bool cached[4000];
 volatile bool loading[4000];
-volatile bool build_finish;
-volatile bool inevict;
-unsigned char *pageaddr[4000];
-unsigned char *cacheaddr[4000];
+char *pageaddr[4000];
+char *cacheaddr[4000];
 long pagesize=sysconf(_SC_PAGESIZE);
 void *c,*p,*p1;
-volatile int lastnum[200][1024];
 
 int pcache[100];//store the number of cached bits
 int pg[1000];//indicate whether each page is cached or not
@@ -61,77 +45,32 @@ struct DataItem dummyItem;
 struct DataItem* item;
 
 
-bool pagecopy(int pagenum,unsigned char *b,unsigned char *a)//copy page from b to a
+void pagecopy(char *b,char *a)//copy page from b to a
 {
     int i;
-    //int *na,*nb;
-    //na=(int *)a;
-    //nb=(int *)b;
-    //printf("start addr in page load:%p\n",b);
-    //for (i=0;i<1024;i++)
-    //    cout<<"beforeload "<<na[i]<<" "<<nb[i]<<endl;
-    //cout<<"*********"<<endl;
-    //for (i=0;i<1024;i++)
-    //{
-    //na[i]=nb[i];
-        //cout<<i<<endl;
-        //if (nb[i]==0)
-        //{
-        //    printf("zero finds when refreshing%d\n",i);
-        //    printf("%d %d\n",c_2_p[cachenum],lastnum[c_2_p[cachenum]][i]);
-        //}
-        //if (loading[cachenum])
-        //{
-            // cout<<"loading found"<<endl;
-    //    return 0;
-    //    }
-        //lastnum[c_2_p[cachenum]][i]=nb[i];
-    //}
     for (i=0;i<4096;i++)
     {
         //cout<<a[i]<<" "<<b[i]<<endl;
         //printf("%d %d\n",a[i],b[i]);
-        //cout<<a[i]<<" "<<b[i]<<endl;
-        //printf("%d %d\n",a[i],b[i]);
-       a[i]=b[i];
-       if (loading[pagenum])
-       {
-           //cout<<"abortion"<<i<<endl;
-           return 0;
-       }
+        a[i]=b[i];
     }
-
-    //for (i=0;i<1024;i++)
-    //    cout<<"afterload "<<na[i]<<" "<<nb[i]<<endl;
-    //cout<<"^^^^^^^^^^^^^^^^^^^^^^"<<endl;
-    return 1;
 }
 
-bool evict(int num_c)
+void evict(int num_c)
 {
     int i,j;
     int num_p=c_2_p[num_c];
-    //cout<<"evict: "<<num_c<<" "<<num_p<<endl;
-    //printf("evict %d\n",num_p);
-    if (!pagecopy(num_p,cacheaddr[num_c],pageaddr[num_p])) return 0;//copy from cache to page
-    //printf("finished\n");
-    usleep(1);
-    if (!loading[num_p])
-    {
-        inevict=1;
-        cached[num_p]=0;
-        c_2_p[num_c]=-1;//invalid the association
-        p_2_c[num_p]=-1;
-        inevict=0;
-    }
-    return 1;
+    pagecopy((char *)c+num_c*pagesize,(char *)p+num_p*pagesize);//copy from cache to page
+    c_2_p[num_c]=-1;//invalid the association
+    p_2_c[num_p]=-1;
+    cached[num_p]=0;
 }
 
-int getpagenum(unsigned char* addr)//To Do:might use inline
+int getpagenum(char* addr)//To Do:might use inline
 {
-    return (int )(addr - (unsigned char *)p) >>12;
+    return (int )(addr - (char *)p) >>12;
 }
-int getoffset(unsigned char *addr,unsigned char *pagestarter)
+int getoffset(char *addr,char *pagestarter)
 {
     return (int)(addr - pagestarter);
 }
@@ -139,35 +78,25 @@ int getoffset(unsigned char *addr,unsigned char *pagestarter)
 void loadpage(int num_c,int num_p)
 {
     int i,j;
-    //int *c;
-    //int a,b;
     //cout<<num_c<<" "<<num_p<<endl;
-    if (c_2_p[num_c]==-1)
+    if (c_2_p[num_c]=-1)
     {
         //cout<<num_c<<" "<<num_p<<"ld"<<endl;
         //printf("%p,%p\n",p,c);
-        if (!pagecopy(num_p,pageaddr[num_p],cacheaddr[num_c])) return; //copy from page to cache
+        pagecopy((char *)p+num_p*pagesize,(char *)c+num_c*pagesize);//copy from page to cache
         c_2_p[num_c]=num_p;
         p_2_c[num_p]=num_c;
-        //printf("%p %p\n",(unsigned char *)p+num_p*pagesize,(unsigned char *)c+num_c*pagesize);
-        //cout<<"loading page/cache number"<<num_c<<" "<<num_p<<endl;
         //cout<<p_2_c[num_p]<<endl;
-        //cout<<<<endl;
-        //c=(int *)pageaddr[num_p];
-        //for (i=0;i<1024;i++)
-        //    lastnum[num_p][i]=c[i];
-        cached[num_p]=1;
+        //cached[num_p]=1;
     }
     else
     {
-         //cout<<"dumped: "<<num_c<<endl;
-         if (!evict(num_c)) return;//evict the page in the cache
-         if (!pagecopy(num_p,pageaddr[num_p],cacheaddr[num_c])) return;//copy from page to cache
+         evict(num_c);//evict the page in the cache
+         pagecopy((char *)p+num_p*pagesize,(char *)c+num_c*pagesize);//copy from page to cache
          c_2_p[num_c]=num_p;
          p_2_c[num_p]=num_c;
-         cached[num_p]=1;
+         //cached[num_p]=1;
     }
-    return;
 }
 
 //probably uneffective, every time read, need to decide cached or not
@@ -184,8 +113,8 @@ void *test(void* x)
     for (j=0;j<20000000;j++)
     {
         i=j%2000;
-        num=getpagenum((unsigned char *)&a[i]);
-        diff=getoffset((unsigned char *)&a[i],pageaddr[num]);
+        num=getpagenum((char *)&a[i]);
+        diff=getoffset((char *)&a[i],pageaddr[num]);
         while (loading[num]);
         if (cached[num])
         {
@@ -213,39 +142,22 @@ int build_array(int *a, int n)
     //cout<<sizeof(int)*n<<" "<<pagesize*pagenumber<<endl;
     //cout<<n<<endl;
     //cout<<a[4000]<<endl;
-    //printf("start addr in build array:%p\n",a);
     for (i = 0; i < n; i++)
     {
         //cout<<i<<endl;
         a[i] = rand();
         //cout<<i<<" "<<a[i]<<endl;
-        //if (a[i]==0) printf("zero found in a %d\n",i);
     }
-    build_finish=1;
-    //cout<<"last item:"<<getpagenum((unsigned char *)(&a[i-1]))<<endl;
-
     return 0;
 }
 int *locate(int *addr)
 {
-    int num_p,diff,numc;
-    int a,b;
-    num_p=getpagenum((unsigned char *)addr);
-    diff=getoffset((unsigned char *)addr,pageaddr[num_p]);
-    //return addr;
-    //printf("pageaddr  %p\n",pageaddr[num_p]);
-    //cout<<"pageoffset:"<<diff<<endl;
-    //cout<<"num_p: "<<num_p<<"diff: "<<diff<<endl;
-    //cout<<"cached: "<<cached[num_p]<<"num_p: "<<num_p<<endl;
-    //printf("%d %d\n",cached[num_p],num_p);
-    a=cached[num_p];
-    if (cached[num_p])
+    int num,diff,numc;
+    num=getpagenum((char *)addr);
+    diff=getoffset((char *)addr,pageaddr[num]);
+    if (cached[num])
     {
-        numc=p_2_c[num_p];
-        if (a!=cached[num_p]) printf("%d\n",num_p);
-        //printf("%d\n",cached[num_p]);
-        //printf("cacheaddr %p\n",cacheaddr[numc]);
-        //cout<<"cached: "<<cached[num_p]<<"num_p: "<<num_p<<"numc: "<<numc<<endl;
+        numc=p_2_c[num];
         return (int *)(cacheaddr[numc]+diff);
     }
     else return addr;
@@ -260,72 +172,34 @@ void array_swap(int *a, int n, int i)
     k1 = rand() % n;
     k2 = rand() % n;
 
-
     //cout << "swaps a[" << k1 << "] and a[" << k2 << "]" << endl;
-    a1num=getpagenum((unsigned char *)&a[k1]);
-    a2num=getpagenum((unsigned char *)&a[k2]);
+    a1num=getpagenum((char *)&a[k1]);
+    a2num=getpagenum((char *)&a[k2]);
 
-
-    while (inevict); 
-    //cout<<a1num<<" "<<a2num<<endl;
-    loading[a1num]=1;
-    loading[a2num]=1;
+    loading[a1num/4]=1;
+    loading[a2num/4]=1;
     a1=locate(&a[k1]);
-    //cout<<"a1"<<endl;
     a2=locate(&a[k2]);
-    //cout<<"a2"<<endl;
-    pac[a1num]++;
-    pac[a2num]++;
     //temp = a[k1];
     //a[k1] = a[k2];
     //a[k2] = temp;
-    //cout<<a1num<<" "<<a2num<<endl;
-    //printf("pointer addr: %p %p %d %d %d %d\n",a1,a2,k1,k2,a1num,a2num);
     // if (*a1==0)
     // {
-    //     printf("zero found:%d pagenum: %d cache num: %d c_2_p num:%d \n",k1,a1num, p_2_c[a1num],c_2_p[a1num]);
+    //     printf("zero found:%d\n",k1);
     //     printf("num     addr %p %p\n",&a[k1],a1);
     //     printf("starter addr %p %p\n",pageaddr[a1num],cacheaddr[a1num%4]);
     // }
     // if (*a2==0)
     // {
-    //     printf("zero found:%d pagenum: %d cache num: %d c_2_p num:%d \n",k2,a2num, p_2_c[a2num],c_2_p[a2num]);
+    //     printf("zero found:%d\n",k2);
     //     printf("num     addr %p %p\n",&a[k2],a2);
     //     printf("starter addr %p %p\n",pageaddr[a2num],cacheaddr[a2num%4]);
     // }
-
-    // if (*a1==0)
-    // {
-    //     //cout<<"a1"<<endl;
-    //     printf("a1 found zero %d %d %p\n",k1,*a1,a1);
-    //     //printf("found zero %d\n",k1,*a1);
-    // }
-    // if (*a2==0)
-    // {
-    //     printf("a2 found zero %d %d %p\n",k2,*a2,a2);
-    //     //printf("found zero %d %d\n",k1,*a1);
-    // }
-    // cout<<"*******before exchange*******"<<endl;
-
     temp = *a1;
     *a1 = *a2;
     *a2 = temp;
-
-    // if (*a1==0)
-    // {
-    //     //cout<<"a1"<<endl;
-    //     printf("a1 found zero %d %d %p\n",k1,*a1,a1);
-    //     //printf("found zero %d\n",k1,*a1);
-    // }
-    // if (*a2==0)
-    // {
-    //     printf("a2 found zero %d %d %p\n",k2,*a2,a2);
-    //     //printf("found zero %d %d\n",k1,*a1);
-    // }
-    // cout<<"*********after exchange*********"<<endl;
-
-    loading[a1num]=0;
-    loading[a2num]=0;
+    loading[a1num/4]=0;
+    loading[a2num/4]=0;
 }
 void *sps(void *x)
 {
@@ -346,14 +220,14 @@ void *sps(void *x)
         cerr << "Fails to build an array" << endl;
         return NULL;
     }
-    // int *a=(int *)x;
-    // for (i=0;i<2000;i++)
-    //     cout<<a[i]<<endl;
+    int *a=(int *)x;
+    for (i=0;i<2000;i++)
+        cout<<a[i]<<endl;
     //cout<<"fault"<<endl;
 
     for (i = 0; i < swaps; i++)
     {
-        //cout<<item_count<<" "<<i<<endl;
+        //cout<<i<<endl;
         array_swap(array, item_count, i); // swap two entris at a time
     }
     thread_num++;
@@ -372,8 +246,8 @@ void *sps(void *x)
 struct DataItem *locateH(struct DataItem *addr)
 {
     int num,diff,numc;
-    num=getpagenum((unsigned char *)addr);
-    diff=getoffset((unsigned char *)addr,pageaddr[num]);
+    num=getpagenum((char *)addr);
+    diff=getoffset((char *)addr,pageaddr[num]);
     //cout<<cached[num]<<endl;
     if (cached[num])
     {
@@ -395,10 +269,11 @@ struct DataItem *search(int key)
     int pnum;
     i=hashIndex;
     //move in array until an empty
+
     do
     {
         it=hashArray+i;
-        pnum=getpagenum((unsigned char *)it);
+        pnum=getpagenum((char *)it);
         it=locateH(it);
         while (loading[pnum]);
         if ((it->key == key)&&(it->data!=-1))
@@ -467,9 +342,9 @@ void insertH(int key,int data)
     //move in array until an empty
     //cout<<hashIndex<<endl;
     it=hashArray+hashIndex;
-    pnum=getpagenum((unsigned char *)it);
+    pnum=getpagenum((char *)it);
     it=locateH(it);
-    //while (loading[pnum]);
+    while (loading[pnum]);
     while(hashArray != NULL && it->key != -1)
     {
         //go to next cell
@@ -479,15 +354,12 @@ void insertH(int key,int data)
         //wrap around the table
         hashIndex %= hashtable_size;
         it=hashArray+hashIndex;
-        pnum=getpagenum((unsigned char *)it);
-        //loading
+        pnum=getpagenum((char *)it);
         it=locateH(it);
-        //while (loading[pnum]);
+        while (loading[pnum]);
     }
-    loading[pnum]=1;
     it->data=data;
     it->key=key;
-    loading[pnum]=0;
     //hashArray[hashIndex].data=data;
     //hashArray[hashIndex].key=key;
 }
@@ -558,19 +430,16 @@ void freshcaches()
             {
                 maxn=pac[j];
                 maxj=j;
-                //cout<<pac[j]<<endl;
             }
             pac[j]=0;
             j+=cachenumber;
-
         }
-        //cout<<"maxj:"<<maxj<<endl;
+        //cout<<maxj<<endl;
         if (!cached[maxj])
         {
             //cout<<maxj<<endl;
             //cout<<maxj<<endl;
             //loading[maxj]=1;//set loading page mark
-            //cout<<"loading page"<<i<<" "<<maxj<<endl;
             loadpage(i,maxj);
             //loading[maxj]=0;//release the mark
         }
@@ -582,7 +451,6 @@ void freshcaches()
 void initiate()
 {
     int i,j;
-    inevict=0;
     for (i=0;i<pagenumber;i++)
     {
         pac[i]=0;
@@ -598,34 +466,14 @@ void initiate()
     thread_num=0;
     c=calloc(pagenumber/4,pagesize);//allocate pages from DRAM
     p=calloc(pagenumber,pagesize);// allocate pages from NVM
-    //int *a=(int *)c;
-    //for sps formalization:
-    //for (j=0;j<1024*pagenumber/4;j++) a[j]=0;
-    //a=(int *)p;
-    //for (j=0;j<1024*pagenumber;j++) a[j]=0;
-
-    //for hashtable formalization
-
-    //memset(lastnum,0,sizeof(lastnum));
-    for (i=0;i<pagenumber;i++)
-        for (j=0;j<1024;j++)
-            lastnum[i][j]=0;
-
     for (i=0;i<cachenumber;i++)
-    {
-        cacheaddr[i]=(unsigned char *)c+i*pagesize;
-        //printf("cacheaddr:%d %p\n",i,cacheaddr[i]);
-    }
-    //printf("cache boundary: %p %p\n", cacheaddr[0], cacheaddr[cachenumber-1]);
+        cacheaddr[i]=(char *)c+i*pagesize;
     for (i=0;i<pagenumber;i++)
     {
-        pageaddr[i]=(unsigned char *)p+i*pagesize;
-        //printf("pageaddr:%d %p\n",i,pageaddr[i]);
+        pageaddr[i]=(char *)p+i*pagesize;
         // printf("%p\n",pageaddr[i]);
         //cout<<pageaddr[i]<<endl;
     }
-    //printf("page boundary: %p %p\n", pageaddr[0], pageaddr[pagenumber-1]);
-    build_finish=0;
     //printf("%p,%p\n",p,c);
     //p1=p+50*pagesize;//each process has 50 pages
 }
@@ -645,9 +493,6 @@ int main()
     int i,j;
     pthread_t thread[2];
     initiate();
-    //cout<<"pagesize:"<<pagesize<<endl;
-    //cout<<"intsize:"<<sizeof(int)<<endl;
-    //cout<<"int num of:"<<pagesize/sizeof(int)<<endl;
     //*******test load page**********//
     // int *a=(int *)p;
     // int *b=(int *)c;
@@ -672,62 +517,35 @@ int main()
     //cout<<"ssss"<<endl;
     //cout<<sizeof(int)<<endl;
     //pthread_create(&thread[0],NULL,hashtable,p);
-    int *a=(int *)c;
-    int *b;
-    int *d;
-    pthread_create(&thread[0],NULL,sps,p);
-    //pthread_create(&thread[0],NULL,hashtable,p);
-    //struct DataItem *a=(struct DataItem *)p;
-    int k=0;
-    while (!build_finish);
+    //pthread_create(&thread[0],NULL,sps,p);
+    pthread_create(&thread[0],NULL,hashtable,p);
+    struct DataItem *a=(struct DataItem *)p;
     while (thread_num!=threadnumber)
     {
         freshcaches();
-        //cout<<"k: "<<k<<endl;
-        //for (i=0;i<cachenumber;i++)
-        //if (c_2_p[i]!=-1)
+        //for (i=0;i<2000;i++)
+        //if (a[i]==0)
         //{
-            //printf("zero found %d\n",i);
-        // a=(int *)cacheaddr[i];
-        //    b=(int *)cacheaddr[i];
-        //    d=(int *)pageaddr[i];
-            //cout<<"$$$$$$$$$$$"<<endl;
-            //printf("%p %p\n",a,d);
-
-            //cout<<"loaded page"<<i<<endl;
-            //for (j=0;j<1024;j++)
-            //if (a[j]==0)
-            //{
-            //    cout<<i<<" "<<j<<endl;
-            //    for (int p=0;p<1024;p++)
-            //    {
-            //        cout<<"cache "<<b[p]<<" "<<p<<endl;
-            //        cout<<"page "<<d[p]<<" "<<p<<endl;
-            //    }
-            //    return 0;
-            //}
+        //    printf("zero found %d\n",i);
         //}
         usleep(50);
-        k++;
     }
-    //for (i=0;i<2000;i++)
-    //    cout<<a[i]<<endl;
+
     pthread_join(thread[0],NULL);
     clear_cache();
     //for (i=0;i<100;i++)
     //    cout<<pac[i]<<endl;
-    //a=(struct DataItem *)p;
-    // struct DataItem *b=(struct DataItem *)c;
+    a=(struct DataItem *)p;
+    struct DataItem *b=(struct DataItem *)c;
+    for (i=0;i<2000;i++)
+    {
+        cout<<a[i].key<<" "<<b[i].key<<endl;
+        cout<<a[i].data<<" "<<b[i].data<<endl;
+        cout<<"------------------"<<endl;
+    }
+    //a=(int *)c;
     //for (i=0;i<2000;i++)
-    //{
-    //     cout<<a[i].key<<" "<<b[i].key<<endl;
-    //     cout<<a[i].data<<" "<<b[i].data<<endl;
-    //     cout<<"------------------"<<endl;
-    //}
-    a=(int *)c;
-    for (i=0;i<1024;i++)
-        cout<<a[i]<<endl;
-    cout<<"k:"<<k<<endl;
+    //    cout<<a[i]<<endl;
     free(p);
     free(c);
     return 0;
