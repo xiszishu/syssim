@@ -43,7 +43,7 @@ unsigned char *pageaddr[4000];
 unsigned char *cacheaddr[4000];
 long pagesize=sysconf(_SC_PAGESIZE);
 void *c,*p,*p1;
-volatile int lastnum[200][1024];
+//volatile int lastnum[200][1024];
 
 int pcache[100];//store the number of cached bits
 int pg[1000];//indicate whether each page is cached or not
@@ -238,11 +238,11 @@ int *locate(int *addr)
     //cout<<"num_p: "<<num_p<<"diff: "<<diff<<endl;
     //cout<<"cached: "<<cached[num_p]<<"num_p: "<<num_p<<endl;
     //printf("%d %d\n",cached[num_p],num_p);
-    a=cached[num_p];
+    //a=cached[num_p];
     if (cached[num_p])
     {
         numc=p_2_c[num_p];
-        if (a!=cached[num_p]) printf("%d\n",num_p);
+        //if (a!=cached[num_p]) printf("%d\n",num_p);
         //printf("%d\n",cached[num_p]);
         //printf("cacheaddr %p\n",cacheaddr[numc]);
         //cout<<"cached: "<<cached[num_p]<<"num_p: "<<num_p<<"numc: "<<numc<<endl;
@@ -266,7 +266,7 @@ void array_swap(int *a, int n, int i)
     a2num=getpagenum((unsigned char *)&a[k2]);
 
 
-    while (inevict); 
+    while (inevict);
     //cout<<a1num<<" "<<a2num<<endl;
     loading[a1num]=1;
     loading[a2num]=1;
@@ -307,9 +307,36 @@ void array_swap(int *a, int n, int i)
     // }
     // cout<<"*******before exchange*******"<<endl;
 
-    temp = *a1;
-    *a1 = *a2;
-    *a2 = temp;
+    if ((!cached[a1num])&&(!cached[a2num]))
+    {
+        //mcsim_paccess_begin();
+        temp = *a1;
+        *a1 = *a2;
+        *a2 = temp;
+        //mcsim_paccess_end();
+    }
+    else if ((!cached[a2num])&&cached[a2num])
+    {
+        //mcsim_paccess_begin();
+        temp = *a1;
+        *a1 = *a2;
+        //mcsim_paccess_end();
+        *a2 = temp;
+    }
+    else if (cached[a2num]&&(!cached[a2num]))
+    {
+        temp = *a1;
+        //mcsim_paccess_begin();
+        *a1 = *a2;
+        *a2 = temp;
+        //mcsim_paccess_end();
+    }
+    else
+    {
+        temp = *a1;
+        *a1 = *a2;
+        *a2 = temp;
+    }
 
     // if (*a1==0)
     // {
@@ -400,7 +427,7 @@ struct DataItem *search(int key)
         it=hashArray+i;
         pnum=getpagenum((unsigned char *)it);
         it=locateH(it);
-        while (loading[pnum]);
+        //while (loading[pnum]);
         if ((it->key == key)&&(it->data!=-1))
             return it;
         //go to next cell
@@ -484,6 +511,7 @@ void insertH(int key,int data)
         it=locateH(it);
         //while (loading[pnum]);
     }
+    while (inevict);
     loading[pnum]=1;
     it->data=data;
     it->key=key;
@@ -514,6 +542,7 @@ void *hashtable(void* x)
     file1>>hashtable_size>>ops;
     hashArray=(struct DataItem*) x;
     buildH(hashtable_size);
+    build_finish=1;
     //display(hashtable_size);
     //cout<<hashtable_size<<" "<<ops<<endl;
     for (i=1;i<=ops;i++)
@@ -536,6 +565,7 @@ void *hashtable(void* x)
             //printf("%p\n",it);
             deleteH(it);
         }
+        //cout<<i<<endl;
         //display(hashtable_size);
     }
     //display(hashtable_size);
@@ -607,9 +637,9 @@ void initiate()
     //for hashtable formalization
 
     //memset(lastnum,0,sizeof(lastnum));
-    for (i=0;i<pagenumber;i++)
-        for (j=0;j<1024;j++)
-            lastnum[i][j]=0;
+    //for (i=0;i<pagenumber;i++)
+    //    for (j=0;j<1024;j++)
+    //        lastnum[i][j]=0;
 
     for (i=0;i<cachenumber;i++)
     {
@@ -672,11 +702,11 @@ int main()
     //cout<<"ssss"<<endl;
     //cout<<sizeof(int)<<endl;
     //pthread_create(&thread[0],NULL,hashtable,p);
-    int *a=(int *)c;
-    int *b;
-    int *d;
-    pthread_create(&thread[0],NULL,sps,p);
-    //pthread_create(&thread[0],NULL,hashtable,p);
+    //int *a=(int *)c;
+    //int *b;
+    //int *d;
+    //pthread_create(&thread[0],NULL,sps,p);
+    pthread_create(&thread[0],NULL,hashtable,p);
     //struct DataItem *a=(struct DataItem *)p;
     int k=0;
     while (!build_finish);
@@ -716,18 +746,19 @@ int main()
     clear_cache();
     //for (i=0;i<100;i++)
     //    cout<<pac[i]<<endl;
-    //a=(struct DataItem *)p;
-    // struct DataItem *b=(struct DataItem *)c;
+    //struct DataItem *a=(struct DataItem *)c;
+    //struct DataItem *b=(struct DataItem *)p;
     //for (i=0;i<2000;i++)
     //{
     //     cout<<a[i].key<<" "<<b[i].key<<endl;
     //     cout<<a[i].data<<" "<<b[i].data<<endl;
     //     cout<<"------------------"<<endl;
     //}
-    a=(int *)c;
-    for (i=0;i<1024;i++)
-        cout<<a[i]<<endl;
-    cout<<"k:"<<k<<endl;
+    //cout<<sizeof(struct DataItem)<<endl;
+    //a=(int *)c;
+    //for (i=0;i<1024;i++)
+    //    cout<<a[i]<<endl;
+    //cout<<"k:"<<k<<endl;
     free(p);
     free(c);
     return 0;
